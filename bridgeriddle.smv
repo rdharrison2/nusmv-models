@@ -1,0 +1,88 @@
+-- Bridge riddle
+-- 
+-- https://ed.ted.com/lessons/can-you-solve-the-bridge-riddle-alex-gendler
+-- 
+-- Run using, NuSMV -int bridgeriddle.smv followed by "go" & "check_property", or
+--  use NuSMV -ctt brideriddle.smv  (uncomment LTLSPECs to see a solution trace).
+
+MODULE person(n, lamp_crossed)
+VAR
+ -- are we about to cross?
+ cross: boolean;
+ -- what side of the bridge are we going to be on
+ crossed: boolean;
+ -- if non-zero, time left to reach other side
+ ticks : 0..n;
+ASSIGN
+ init(ticks) := 0;
+ init(crossed) := FALSE;
+ next(ticks) :=
+  case
+   crossing: ticks - 1;
+   cross: n - 1;
+   TRUE: 0;
+  esac;
+ next(crossed) := cross & !crossing ? !crossed : crossed;
+INVAR
+ -- can only cross if you are on the same side as the lamp
+ cross -> crossed = lamp_crossed
+DEFINE
+ crossing := ticks > 0;
+ safe := crossed & !crossing;
+
+
+MODULE main
+VAR
+ ticks: -1..20;
+ lamp_crossed: boolean;
+ you: person(1, lamp_crossed);
+ lab: person(2, lamp_crossed);
+ janitor: person(5, lamp_crossed);
+ prof: person(10, lamp_crossed);
+ASSIGN
+ -- count up to when zombies arrive, ignoring start state so init to -1
+ init(ticks) := -1;
+ next(ticks) := ticks < 20 ? ticks + 1 : 20;
+ -- lamp starts on near side and crosses each time people cross
+ init(lamp_crossed) := FALSE;
+ next(lamp_crossed) := cross_count > 0 ? !lamp_crossed : lamp_crossed;
+DEFINE
+ -- number of people mid way across the bridge
+ crossing := count(you.crossing, lab.crossing, janitor.crossing, prof.crossing);
+ -- number of people about to cross
+ cross_count := count(you.cross, lab.cross, janitor.cross, prof.cross);
+ safe_count := count(you.safe, lab.safe, janitor.safe, prof.safe);
+ -- zombies arrived
+ zombies_arrived := ticks > 17;
+INIT
+ -- start with no one crossing
+ cross_count = 0
+INVAR
+ -- no one can start to cross if people are still crossing
+ (crossing > 0 -> cross_count = 0) &
+ -- only up to two people can cross at a time
+ (cross_count <= 2);
+
+-- Properties
+
+-- whenever you decide to cross you get to the safe side eventually
+LTLSPEC G (you.cross -> F you.safe)
+LTLSPEC G (lab.cross -> F lab.safe)
+-- zombies eventually arrive (and don't leave)
+LTLSPEC F G zombies_arrived
+-- it is always possible for you to cross to safety
+SPEC AG EF you.safe
+-- the lamp 
+-- A solution is possible
+SPEC EF (safe_count = 4 & !zombies_arrived)
+-- there are no solutions in which you and prof cross
+LTLSPEC F (you.cross & prof.cross & !zombies_arrived & safe_count < 4) -> G !( safe_count = 4 & !zombies_arrived)
+-- show us a trace that gets 3 people to safety
+-- LTLSPEC G !( safe_count = 3 )
+-- show us a solution to the problem
+-- you+lab=2,lab=2,jan+prof=10,you=1,you+lab=2 = 17
+-- LTLSPEC G !( safe_count = 4 & !zombies_arrived)
+-- there are no solutions that take less than 17 steps (have to +1 for start state)
+SPEC ABF 0..17 !(safe_count = 4 & !zombies_arrived)
+-- equivalently, zombies always arrive immediately after we solve the problem
+LTLSPEC G ( (safe_count = 4 & !zombies_arrived) -> X zombies_arrived)
